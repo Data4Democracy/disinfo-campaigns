@@ -5,6 +5,7 @@
 library(tabulizer)
 library(tidyverse)
 library(utils)
+library(stringi)
 
 # Download the zips from https://democrats-intelligence.house.gov/facebook-ads/social-media-advertisements.htm into this directory
 INPUT_DIR = '/opt/data/house-psci-facebook-ads/'
@@ -88,7 +89,8 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
             Generation=parseSection(tt, 'Generation', forceColonAfterTitle = TRUE),
             Politics=parseSection(tt, 'Politics', forceColonAfterTitle = TRUE),
         ) %>% mutate(
-          Interests=gsub(x=Interests, pattern="RUB|USD|None$", replacement='') %>% gsub(perl=TRUE, x=., pattern="(?U)(.+)(?:[0-9,\\./ ]+)$", replacement = '\\1')
+          Interests=gsub(x=Interests, pattern='P\\(1\\).+$', replacement=''),
+          Interests=stri_reverse(gsub(x=stri_reverse(gsub(x=Interests, pattern='RUB|USD|R U B|None[0-9 /]+$', replacement='')), pattern="^([0-9 \\.,/]+)(.+)", replacement = '\\2')),
         ) %>% mutate(
           AdText=gsub(perl=TRUE, x=AdText, pattern='(?:Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Ad Landing Page|Ad Targeting|Ad Creation Date|Ad End Date)', replacement=''),
           Clicks=case_when(is.na(Clicks) ~ case_when(grepl(x=tt, pattern='Ad Clicks\\s+([0-9,]+)') ~ gsub(x=tt, pattern='.+Ad Clicks\\s+([0-9,]+).+', replacement='\\1'), TRUE ~ NA_character_), TRUE ~ Clicks),
@@ -112,6 +114,8 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
 }) # %>% select(-tt)
 
 write_csv(fdf %>% select(-tt), 'FacebookAds.csv', na='')
+dwapi::configure(Sys.getenv("DATA_WORLD_RW_API_KEY"))
+dwapi::upload_data_frame("scottcame/us-house-psci-social-media-ads", fdf %>% select(-tt), 'FacebookAds.csv')
 
 
 
