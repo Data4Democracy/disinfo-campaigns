@@ -36,34 +36,60 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
       ret <- tibble()
       tryCatch({
       tt <- extract_text(pdf, pages=1) %>% gsub(x=., pattern='\n', replacement=' ')
+      
+      sectionTitles <- 'Connections|Behaviors|Friends of connections|Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language|Location|Generation|Politics|Ad Creation Date|Gender'
+      
+      parseSection <- function(rawText, sectionTitle, forceColonAfterTitle=FALSE, useDigitsAsStopper=TRUE) {
+        ret <- NA_character_
+        if (grepl(x=rawText, pattern=sectionTitle)) {
+          colonPart <- '[:]'
+          if (!forceColonAfterTitle) {
+            colonPart <- '[:]?'
+          }
+          ret <- gsub(perl=TRUE, x=tt, pattern=paste0('^.+', sectionTitle, colonPart, ' ([^:]+).+'), replacement='\\1')
+          fullRegex <- sectionTitles
+          if (useDigitsAsStopper) {
+            fullRegex <- paste0(sectionTitles, '|[0-9]+')
+          }
+          ret <- str_split(ret, paste0('(?:', fullRegex, ')')) %>% map_chr(function(i) { i[1] })
+        }
+        ret <- case_when(grepl(x=ret, pattern='Ad ID|Ad Landing Page') ~ NA_character_, TRUE ~ ret)
+        ret
+      }
+      
       ret <- tibble(tt=tt) %>%
         mutate(
           AdID=gsub(x=tt, pattern='^[^0-9]+([0-9]+).+', replacement='\\1'),
-          AdText=gsub(x=tt, pattern='^.*Ad Text(.+)http.+', replacement='\\1'),
+          AdText=case_when(grepl(x=tt, pattern='Ad Text') ~ gsub(x=tt, pattern='^.*Ad Text(.+)http.+', replacement='\\1'), TRUE ~ NA_character_),
           Impressions=case_when(grepl(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+') ~ gsub(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+', replacement='\\1'), TRUE ~ NA_character_),
-          Clicks=case_when(grepl(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+') ~ gsub(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+', replacement='\\2'), TRUE ~ NA_character_),
-          Location=gsub(perl=TRUE, x=tt, pattern='^.+Location[ ]?[\\-:] (.+)(?:Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend).+', replacement='\\1'),
-          Location=str_split(Location, '(?:Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language)') %>% map_chr(function(i) { i[1] }),
           Age=gsub(perl=TRUE, x=tt, pattern='^.+Age: ([0-9 \\-+]+).+', replacement='\\1'),
-          Placements=gsub(perl=TRUE, x=tt, pattern='^.+Placements[:]? ([^:]+).+', replacement='\\1'),
-          Placements=str_split(Placements, '(?:Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language|Ad Creation Date|[0-9]+)') %>% map_chr(function(i) { i[1] }),
-          PeopleWhoMatch=case_when(grepl(x=tt, pattern='People Who Match') ~ gsub(perl=TRUE, x=tt, pattern='^.+People Who Match: ([^:]+).+', replacement='\\1'), TRUE ~ NA_character_),
-          PeopleWhoMatch=str_split(PeopleWhoMatch, '(?:Friends of connections|Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language|Ad Creation Date|[0-9]+)') %>% map_chr(function(i) { i[1] }),
-          Interests=case_when(grepl(x=tt, pattern='Interests') ~ gsub(perl=TRUE, x=tt, pattern='^.+Interests: ([^:]+).+', replacement='\\1'), TRUE ~ NA_character_),
-          Interests=str_split(Interests, '(?:Friends of connections|Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language|Ad Creation Date|[0-9]+)') %>% map_chr(function(i) { i[1] }),
-          Language=case_when(grepl(x=tt, pattern='Language') ~ gsub(perl=TRUE, x=tt, pattern='^.+Language: ([^:]+).+', replacement='\\1'), TRUE ~ NA_character_),
-          Language=str_split(Language, '(?:Friends of connections|Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language|Ad Creation Date|[0-9]+)') %>% map_chr(function(i) { i[1] }),
-          FriendsOfConnections=case_when(grepl(x=tt, pattern='Friends of connections') ~ gsub(perl=TRUE, x=tt, pattern='^.+Friends of connections: ([^:]+).+', replacement='\\1'), TRUE ~ NA_character_),
-          FriendsOfConnections=str_split(FriendsOfConnections, '(?:Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language|Ad Creation Date|[0-9]+)') %>% map_chr(function(i) { i[1] }),
-          ExcludedConnections=case_when(grepl(x=tt, pattern='Excluded Connections') ~ gsub(perl=TRUE, x=tt, pattern='^.+Excluded Connections: ([^:]+).+', replacement='\\1'), TRUE ~ NA_character_),
-          ExcludedConnections=str_split(ExcludedConnections, '(?:Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Language|Ad Creation Date|[0-9]+)') %>% map_chr(function(i) { i[1] }),
+          Age=case_when(grepl(x=Age, pattern='Ad ID|Ad Landing Page') ~ NA_character_, TRUE ~ Age),
+          Clicks=case_when(grepl(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+') ~ gsub(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+', replacement='\\2'), TRUE ~ NA_character_),
           AdSpend=gsub(x=tt, pattern='.+ ([0-9.,]+ RUB).+', replacement='\\1'),
           CreationDate=gsub(perl=TRUE, x=tt, pattern='.+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+', replacement='\\1'),
           CreationDate=case_when(grepl(x=CreationDate, pattern='^[0-9]{2}/.+') ~ CreationDate, TRUE ~ gsub(perl=TRUE, x=tt, pattern='.+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+', replacement='\\1')),
+          CreationDate=case_when(grepl(x=CreationDate, pattern='Ad ID|Ad Landing Page') ~ NA_character_, TRUE ~ CreationDate),
           EndDate=gsub(perl=TRUE, x=tt, pattern='.+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+', replacement='\\2'),
           EndDate=case_when(grepl(x=EndDate, pattern='^[0-9]{2}/.+') ~ EndDate, TRUE ~ NA_character_),
-        ) %>%
-        mutate(
+          EndDate=case_when(grepl(x=EndDate, pattern='Ad ID|Ad Landing Page') ~ NA_character_, TRUE ~ EndDate),
+        ) %>% mutate(
+          Location=gsub(perl=TRUE, x=tt, pattern=paste0('^.+Location[ ]?[\\-:] (.+)(?:', sectionTitles, ').+'), replacement='\\1'),
+          Location=str_split(Location, paste0('(?:', sectionTitles, ')')) %>% map_chr(function(i) { i[1] }),
+          Location=case_when(grepl(x=Location, pattern='Ad ID|Ad Landing Page') ~ NA_character_, TRUE ~ Location)
+          ) %>% mutate(
+            Behaviors=parseSection(tt, 'Behaviors'),
+            Placements=parseSection(tt, 'Placements'),
+            PeopleWhoMatch=parseSection(tt, 'People Who Match'),
+            Interests=parseSection(tt, 'Interests', useDigitsAsStopper=FALSE),
+            Language=parseSection(tt, 'Language'),
+            FriendsOfConnections=parseSection(tt, 'Friends of connections'),
+            ExcludedConnections=parseSection(tt, 'Excluded Connections'),
+            Gender=parseSection(tt, 'Gender', forceColonAfterTitle = TRUE),
+            Generation=parseSection(tt, 'Generation', forceColonAfterTitle = TRUE),
+            Politics=parseSection(tt, 'Politics', forceColonAfterTitle = TRUE),
+        ) %>% mutate(
+          Interests=gsub(x=Interests, pattern="RUB|USD|None$", replacement='') %>% gsub(perl=TRUE, x=., pattern="(?U)(.+)(?:[0-9,\\./ ]+)$", replacement = '\\1')
+        ) %>% mutate(
           AdText=gsub(perl=TRUE, x=AdText, pattern='(?:Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Ad Landing Page|Ad Targeting|Ad Creation Date|Ad End Date)', replacement=''),
           Clicks=case_when(is.na(Clicks) ~ case_when(grepl(x=tt, pattern='Ad Clicks\\s+([0-9,]+)') ~ gsub(x=tt, pattern='.+Ad Clicks\\s+([0-9,]+).+', replacement='\\1'), TRUE ~ NA_character_), TRUE ~ Clicks),
           Impressions=case_when(is.na(Impressions) ~ case_when(grepl(x=tt, pattern='Ad Impressions\\s+([0-9,]+)') ~ gsub(x=tt, pattern='.+Ad Impressions\\s+([0-9,]+).+', replacement='\\1'), TRUE ~ NA_character_), TRUE ~ Impressions)
@@ -71,9 +97,10 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
         mutate_if(is.character, trimws) %>%
         mutate_if(is.character, blankToNA) %>%
         mutate_at(vars(Clicks, Impressions), makeInteger) %>%
-        mutate(AdSpend=case_when(grepl(x=AdSpend, pattern='RUB') ~ suppressWarnings(as.numeric(gsub(x=gsub(x=AdSpend, pattern='(.+) RUB', replacement='\\1'), pattern=',', replacement=''))),
+        mutate(AdSpendp=case_when(grepl(x=AdSpend, pattern='RUB|USD') ~ suppressWarnings(as.numeric(gsub(x=gsub(x=AdSpend, pattern='(.+) (RUB|USD)', replacement='\\1'), pattern=',', replacement=''))),
                                  TRUE ~ NA_real_),
-               AdSpendCurrency='RUB') %>%
+               AdSpendCurrency=case_when(grepl(x=AdSpend, pattern='RUB') ~ 'RUB', grepl(x=AdSpend, pattern='USD') ~ 'USD', TRUE ~ NA_character_)) %>%
+        select(-AdSpend) %>% rename(AdSpend=AdSpendp) %>%
         mutate(AdText=gsub(x=AdText, pattern='^[0-9]+[ ]+(.+)', replacement='\\1')) %>%
         mutate(SourceFile=fileName, SourceZip=zipFileName)
       }, error = function(e) {
@@ -82,7 +109,7 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
       ret
     }
   })
-}) %>% select(-tt)
+}) # %>% select(-tt)
 
 write_csv(fdf %>% select(-tt), 'FacebookAds.csv', na='')
 
