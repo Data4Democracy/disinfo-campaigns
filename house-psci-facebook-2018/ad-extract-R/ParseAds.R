@@ -11,7 +11,7 @@ library(stringi)
 INPUT_DIR = '/opt/data/house-psci-facebook-ads/'
 
 makeInteger <- function(s) {
-  as.integer(gsub(x=s, pattern=',', replacement=''))
+  as.integer(gsub(x=s, pattern=',|\\.| ', replacement=''))
 }
 
 blankToNA <- function(s) {
@@ -30,10 +30,10 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
   rawFiles <- list.files(td, recursive=TRUE, full.names=TRUE)
   writeLines(paste0('Processing ', length(rawFiles), ' files in zipfile ', zipfile))
   imap_dfr(rawFiles, function(pdf, idx) {
+    fileName <- gsub(x=pdf, pattern=paste0(td, '(.+)'), replacement='\\1')
     if (!grepl(x=pdf, pattern='empty')) {
       #writeLines(paste0('Processing pdf ', pdf))
       if (idx %% 10 == 0) writeLines(paste0('Processed pdf # ', idx))
-      fileName <- gsub(x=pdf, pattern=paste0(td, '(.+)'), replacement='\\1')
       ret <- tibble()
       tryCatch({
       tt <- extract_text(pdf, pages=1) %>% gsub(x=., pattern='\n', replacement=' ')
@@ -62,10 +62,16 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
         mutate(
           AdID=gsub(x=tt, pattern='^[^0-9]+([0-9]+).+', replacement='\\1'),
           AdText=case_when(grepl(x=tt, pattern='Ad Text') ~ gsub(x=tt, pattern='^.*Ad Text(.+)http.+', replacement='\\1'), TRUE ~ NA_character_),
-          Impressions=case_when(grepl(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+') ~ gsub(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+', replacement='\\1'), TRUE ~ NA_character_),
+          Clicks=case_when(grepl(x=tt, pattern='Ad Clicks\\s+([0-9,\\. ]+)A') ~ gsub(x=tt, pattern='.+Ad Clicks\\s+([0-9,\\. ]+)A.+', replacement='\\1'), TRUE ~ NA_character_),
+          Impressions=case_when(grepl(x=tt, pattern='Ad Impressions\\s+([0-9,\\. ]+)A') ~ gsub(x=tt, pattern='.+Ad Impressions\\s+([0-9,\\. ]+)A.+', replacement='\\1'), TRUE ~ NA_character_),
+          Clicks=case_when(is.na(Clicks) ~ case_when(grepl(x=tt, pattern='Ad Clicks\\s+([0-9,\\.]+)') ~ gsub(x=tt, pattern='.+Ad Clicks\\s+([0-9,\\.]+).+', replacement='\\1'), TRUE ~ NA_character_), TRUE ~ Clicks),
+          Impressions=case_when(is.na(Impressions) ~ case_when(grepl(x=tt, pattern='Ad Impressions\\s+([0-9,\\.]+)') ~ gsub(x=tt, pattern='.+Ad Impressions\\s+([0-9,\\.]+).+', replacement='\\1'), TRUE ~ NA_character_), TRUE ~ Impressions),
+          Clicks=case_when(is.na(Clicks) & grepl(x=tt, pattern='.+Clicks.+[^0-9] ([0-9,\\.]+) ([0-9,\\.]+).+') ~ gsub(x=tt, pattern='.+Clicks.+[^0-9] ([0-9,\\.]+) ([0-9,\\.]+).+', replacement='\\2'), TRUE ~ Clicks),
+          Impressions=case_when(is.na(Impressions) & grepl(x=tt, pattern='.+Impressions.+[^0-9] ([0-9,\\.]+) ([0-9,\\.]+).+') ~ gsub(x=tt, pattern='.+Impressions.+[^0-9] ([0-9,\\.]+) ([0-9,\\.]+).+', replacement='\\1'), TRUE ~ Impressions),
+          Clicks=case_when(is.na(Clicks) & grepl(x=tt, pattern=' ([0-9,\\.]+) ([0-9,\\.]+) ([0-9,\\.]+) (RUB|USD).+') ~ gsub(x=tt, pattern='.+ ([0-9,\\.]+) ([0-9,\\.]+) ([0-9,\\.]+) (RUB|USD).+', replacement='\\2'), TRUE ~ Clicks),
+          Impressions=case_when(is.na(Impressions) & grepl(x=tt, pattern=' ([0-9,\\.]+) ([0-9,\\.]+) ([0-9,\\.]+) (RUB|USD).+') ~ gsub(x=tt, pattern='.+ ([0-9,\\.]+) ([0-9,\\.]+) ([0-9,\\.]+) (RUB|USD).+', replacement='\\1'), TRUE ~ Impressions),
           Age=gsub(perl=TRUE, x=tt, pattern='^.+Age: ([0-9 \\-+]+).+', replacement='\\1'),
           Age=case_when(grepl(x=Age, pattern='Ad ID|Ad Landing Page') ~ NA_character_, TRUE ~ Age),
-          Clicks=case_when(grepl(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+') ~ gsub(x=tt, pattern='.+[^0-9] ([0-9,]+) ([0-9,]+).+', replacement='\\2'), TRUE ~ NA_character_),
           AdSpend=gsub(x=tt, pattern='.+ ([0-9.,]+ RUB).+', replacement='\\1'),
           CreationDate=gsub(perl=TRUE, x=tt, pattern='.+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+', replacement='\\1'),
           CreationDate=case_when(grepl(x=CreationDate, pattern='^[0-9]{2}/.+') ~ CreationDate, TRUE ~ gsub(perl=TRUE, x=tt, pattern='.+([0-9]{2}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} (?:AM|PM) (?:[PDST]+)).+', replacement='\\1')),
@@ -93,8 +99,6 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
           Interests=stri_reverse(gsub(x=stri_reverse(gsub(x=Interests, pattern='RUB|USD|R U B|None[0-9 /]+$', replacement='')), pattern="^([0-9 \\.,/]+)(.+)", replacement = '\\2')),
         ) %>% mutate(
           AdText=gsub(perl=TRUE, x=AdText, pattern='(?:Excluded Connections|Placements|Age|Interests|People Who Match|Ad Impressions|Ad Clicks|Ad Spend|Ad Landing Page|Ad Targeting|Ad Creation Date|Ad End Date)', replacement=''),
-          Clicks=case_when(is.na(Clicks) ~ case_when(grepl(x=tt, pattern='Ad Clicks\\s+([0-9,]+)') ~ gsub(x=tt, pattern='.+Ad Clicks\\s+([0-9,]+).+', replacement='\\1'), TRUE ~ NA_character_), TRUE ~ Clicks),
-          Impressions=case_when(is.na(Impressions) ~ case_when(grepl(x=tt, pattern='Ad Impressions\\s+([0-9,]+)') ~ gsub(x=tt, pattern='.+Ad Impressions\\s+([0-9,]+).+', replacement='\\1'), TRUE ~ NA_character_), TRUE ~ Impressions)
         ) %>%
         mutate_if(is.character, trimws) %>%
         mutate_if(is.character, blankToNA) %>%
@@ -107,15 +111,16 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
         mutate(SourceFile=fileName, SourceZip=zipFileName)
       }, error = function(e) {
         writeLines(paste0('Error occurred processing pdf ', pdf, '...moving on!'))
+        print(e)
       })
       ret
     }
   })
 }) # %>% select(-tt)
 
-write_csv(fdf %>% select(-tt), 'FacebookAds.csv', na='')
-dwapi::configure(Sys.getenv("DATA_WORLD_RW_API_KEY"))
-dwapi::upload_data_frame("scottcame/us-house-psci-social-media-ads", fdf %>% select(-tt), 'FacebookAds.csv')
+#write_csv(fdf %>% select(-tt), 'FacebookAds.csv', na='')
+#dwapi::configure(Sys.getenv("DATA_WORLD_RW_API_KEY"))
+#dwapi::upload_data_frame("scottcame/us-house-psci-social-media-ads", fdf %>% select(-tt), 'FacebookAds.csv')
 
 
 
