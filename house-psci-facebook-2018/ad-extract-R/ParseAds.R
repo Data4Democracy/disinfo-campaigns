@@ -92,6 +92,15 @@ fdf <- map_df(list.files(INPUT_DIR, pattern="*.zip", full.names=TRUE), function(
             EndDate=case_when(is.na(EndDate) & !grepl(perl=TRUE, pattern='(?:P[DS]T).+(?:P[DS]T)', x=ttd) ~ gsub(x=ttd, perl=TRUE, pattern='.+(?!P[DS]T)+([0-9]{2}/[0-9]{2}/[0-9]{2}[ ]?[0-9]{2}[:\\-][0-9]{2}[:\\-][0-9]{2}[ ]?(?:AM|PM) (?:[PDST]+))[ ]+P.+', replacement='\\2'),
                                    TRUE ~ EndDate),
             EndDate=case_when(grepl(x=EndDate, pattern='Ad ID|Ad Landing Page') ~ NA_character_, TRUE ~ EndDate),
+            LandingPage=case_when(
+              grepl(x=tt, pattern='.+Ad Landing Page.+(https.+)Ad Target.+') ~ gsub(x=tt, pattern='.+Ad Landing Page.+(https.+)Ad Target.+', replacement='\\1'),
+              TRUE ~ NA_character_),
+            LandingPage=case_when(
+              is.na(LandingPage) & grepl(x=tt, pattern=paste0('http')) ~
+                gsub(x=tt, pattern='.+(http.+)', replacement='\\1') %>% str_split(paste0('(?:', sectionTitles, ')')) %>% map_chr(function(i) { i[1] }),
+              TRUE ~ LandingPage
+            ),
+            LandingPage=case_when(is.na(LandingPage) ~ NA_character_, TRUE ~ gsub(x=LandingPage, pattern='[ ]+', replacement=''))
           ) %>% mutate(
             Location=gsub(perl=TRUE, x=tt, pattern=paste0('^.+Location[ ]?[\\-:] (.+)(?:', sectionTitles, ').+'), replacement='\\1'),
             Location=str_split(Location, paste0('(?:', sectionTitles, ')')) %>% map_chr(function(i) { i[1] }),
